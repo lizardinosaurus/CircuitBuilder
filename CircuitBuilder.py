@@ -1312,34 +1312,20 @@ def ohmslaw():
         # selects all components from tblcomponents
         cursor.execute('SELECT * FROM tblcomponents ORDER BY compID')
         data = cursor.fetchall()
-        cursor.execute('SELECT * FROM tblpositiveconnections ORDER BY compID')
-        positivedata = curor.fetchall()
-        cursor.execute('SELECT * FROM tblnegativeconnections ORDER BY compID')
-        negativedata = curor.fetchall()
         branchvoltage = 0
         branchresistance = 0
         count = -1
         for item in data:
-            pvoltage = 0
             count += 1
-            amount = 0
             if item[13] == True and item[1] != "Fuse": # detects if an item is powered or is a fuse
                  # adds up all the resitances in the branch
-                 for connection in negativedata:
-                     if connection[1] = item[0]:
-                         for item2 in data:
-                             if (connection[2] == item2[0]) and (item2[1] != "Voltmeter"):
-                                 amount += 1
-                         if connection[3] >= 2:
-                             component = 
-                             
                 branchresistance += component_list.sprites()[count].resistance
                 if item[1] == "Cell": # detects if the component is a cell
                     # adds the voltage of all the cells
                     branchvoltage += component_list.sprites()[count].voltage
         # divides the total voltage of the branch by the total resistance
         currentofbranch = branchvoltage/branchresistance
-        return currentofbranch # returns the current of the branch
+        return currentofbranch # returns the resistance of the branch
     except:
         1
 

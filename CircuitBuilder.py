@@ -5,6 +5,7 @@ import sys
 import types
 import sqlite3
 import ctypes
+from collections import defaultdict
 
 
 
@@ -143,10 +144,10 @@ def comprect(component, tlx, tly):
 def drag_and_drop_check(self, Component, componenttype, id_count):
     try:
         if (self.collidepoint(pygame.mouse.get_pos())) and (leftclick == True): # detects if a component in the tray is clicked
-                cursor.execute("INSERT INTO tblcomponents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (((id_count)-1), componenttype, mx, my, 0, 0, 0, 0, 0, 0, 0, 0, 0, False, 0, 0, False,0 ,0, 0)) # adds the new component to the databse
+                cursor.execute("INSERT INTO tblcomponents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (((id_count)-1), componenttype, mx, my, 0, 0, 0, 0, 0, 0, 0, 0, 0, False, 0, 0, 0,0 ,0, 0)) # adds the new component to the databse
                 conn.commit()
                 id_count = int(id_count) + 1 #increments id_count by 1
-                component_list.add(Component(mx, my, camera_group, 0, 0, False)) # adds the component to the component_list
+                component_list.add(Component(id_count - 2, mx, my, camera_group, 0, 0, False)) # adds the component to the component_list
                 Component.clicked = True # sets component to clicked
                 return id_count # returns the new id
         else:
@@ -154,10 +155,10 @@ def drag_and_drop_check(self, Component, componenttype, id_count):
     # runs the same function with id_count as 1 if the program is unable to detrmine its value
     except TypeError:
         if (self.collidepoint(pygame.mouse.get_pos())) and (leftclick == True): # detects if a component in the tray is clicked
-                cursor.execute("INSERT INTO tblcomponents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (0, componenttype, mx, my, 0, 0, 0, 0, 0, 0, 0, 0, 0, False, 0, 0, False, 0, 0, 0)) # adds the new component to the databse
+                cursor.execute("INSERT INTO tblcomponents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (0, componenttype, mx, my, 0, 0, 0, 0, 0, 0, 0, 0, 0, False, 0, 0, 0, 0, 0, 0)) # adds the new component to the databse
                 conn.commit()
                 id_count = 2 #increments id_count by 1
-                component_list.add(Component(mx, my, camera_group, 0, 0, False)) #adds the component to the component_list
+                component_list.add(Component(id_count - 2, mx, my, camera_group, 0, 0, False)) #adds the component to the component_list
                 Component.clicked = True # sets component to clicked
                 return id_count # returns the new id
         else:
@@ -958,7 +959,7 @@ def reset():
         for component in component_list: # initiates a loop of every component
             # sets the components powered value to flase in the database
             idnumber = data[count][0]
-            cursor.execute("UPDATE tblcomponents SET powered=? WHERE compID=?", (False, idnumber) )
+            cursor.execute("UPDATE tblcomponents SET powered=?, voltageaccross=?, currentaccross=? WHERE compID=?", (False, 0, 0, idnumber) )
             conn.commit()
             count += 1
 
@@ -995,160 +996,228 @@ def pausebutton():
                 
 
 
-def check_powered(cellislist):
-        count = -1
-        level = 1
-        # selects all data from tblcomponents and saves it to data
-        cursor.execute('SELECT * FROM tblcomponents ORDER BY compID')
-        data = cursor.fetchall()
-        for component in component_list: # initialises a loop of all components
-            count += 1
-            if data[count][1] == "Cell": # detects if a component is a cell
-                # saves its id to cellid and appends it to cellidlist
-                cellid = data[count][0]
-                cellidlist.append(cellid)
-        while cellidlist != []: # runs the loop for all cells in cellidlist
-            # takes the first value of cellidlist, saves it to cellid then removes it from the list
-            cellid = cellidlist[0]
-            connectedcomp = cellid
-            cellidlist.pop(0)
-            # selects all values from tblpositiveconnections and saves it to data
-            cursor.execute('SELECT * FROM tblpositiveconnections ORDER BY compID')
-            data = cursor.fetchall()
-            # defines all the variables needed by the function
-            count = -1
-            branches = []
-            cycles = 0
-            compcount = 999999
-            rangevalue = 0
-            empty = False
-            total = 0
-            while total <= len(component_list): # runs the command untill a loop has been powered for the number of components
-                rangevalue += 1
-                count += 1
-                if cycles >= len(component_list) or empty == True: # runs when a branch is empty or all components have been powered
-                    # searches the list branches and sets the connected comp to the count stored there + amount of times it appears in the list
-                    cycles = 0
-                    temp = compcount
-                    compcount = branches[0]
-                    connections = 0
-                    for comp in branches:
-                        if comp == compcount:
-                            connections +=1
-                    connectedcomp = data[compcount+connections][2]
-                    # resets all variables and removes one instance of the index 0 value from branches
-                    connections = 0
-                    branches.pop(0)
-                    count = 0
-                    empty = False
+def get_connections():
+    # Fetch connections
+    cursor.execute("SELECT compID, positiveterminalconnectedto FROM tblpositiveconnections")
+    connections = cursor.fetchall()
+    return connections
 
-                if (data[count][1] == connectedcomp) and (data[count][4] == False): # checks if the selected item from the databse is the same as then connectedcomp
-                        
-                    cycles += 1
-                    if data[count][3] >= 2: # detects if the component has 2 or more connections
-                        level = 2
-                        if (count not in branches) and (count != compcount):
-                            # appends the component to branches for all of its connections so the program can bo back to the split later on
-                            for i in range(data[count][3]-1):
-                                branches.append(count)
+def build_graph(connections):
+    """Constructs a graph from the connections."""
+    graph = defaultdict(list)
+    for a, b in connections:
+        graph[a].append(b)
+        graph[b].append(a)
+    return graph
 
-                    cursor.execute('SELECT * FROM tblnegativeconnections ORDER BY compID')
-                    negdata = cursor.fetchall()
-                    for line in negdata:
-                        if line[1] == data[count][2]:
-                            if line[3] >= 2:
-                                level = 0
-                        
-                    count2 = -1
-                    # checks if a component has no other component connected to its positive terminal
-                    empty = True
-                    for lines in data:
-                        count2 += 1
-                        if data[count][2] == data[count2][1]:
-                            empty = False
+def is_powered(component_list, connections, power_source_id):
+    """Check if there is a cycle in the graph starting from the power source."""
+    visited = set()
+
+    for component in component_list:
+        if (component.__class__.__name__ == "Switch" and component.uniquestate == False):
+            return False
+        if (component.__class__.__name__ == "Fuse" and component.uniquestate == True):
+            return False
+    
+    def dfs(current, parent):
+        visited.add(current)
+        
+        for (a, b) in connections:
+            # Check both directions in the connection
+            neighbor = b if a == current else a if b == current else None
+            if neighbor is not None:
+                if neighbor not in visited:
+                    if dfs(neighbor, current):
+                        return True
+                elif neighbor != parent:  # A visited node that is not the parent means a cycle
+                    return True
                     
-                    connectedcomp = data[count][2] # sets the connectedcomp to the next component in the circuit
-                    count = -1
-                    if connectedcomp == cellid: # checks if the current connectedcomp is equal to the original cellid
-                        # runst the same code above but poweres all the components as they are selected
-                        # defines all the variables needed by the function
-                        total += 1
-                        count = -1
-                        empty = False
-                        cursor.execute('SELECT * FROM tblpositiveconnections ORDER BY compID')
-                        data = cursor.fetchall()
-                        branches = []
-                        cycles = 0
-                        compcount = 999999
-                        while total <= len(component_list): # runs the command untill a loop has been powered for the number of components
-                            count += 1
-                            if cycles >= len(component_list) or empty == True: # runs when a branch is empty or all components have been powered
-                            # searches the list branches and sets the connected comp to the count stored there + amount of times it appears in the list
-                                cycles = 0
-                                temp = compcount
-                                compcount = branches[0]
-                                connections = 0
-                                for comp in branches:
-                                    if comp == compcount:
-                                        connections +=1
-                                connectedcomp = data[compcount+connections][2]
-                                # resets all variables and removes one instance of the index 0 value from branches
-                                connections = 0
-                                branches.pop(0)
-                                count = 0
-                                empty = False
+        return False
+
+    # Start DFS from the power source
+    return dfs(power_source_id, None)
+
+def find_branches(graph, power_source_id, visited):
+    """
+    Identifies distinct branches starting from the power source.
+    Returns a list of branches, where each branch is a list of components in series.
+    """
+    branches = []
+    stack = [(power_source_id, None)]
+    visited.add(power_source_id)
+
+    current_branch = []
+
+    while stack:
+        current_node, previous_node = stack.pop()
+        neighbors = graph[current_node]
+
+        for item in neighbors:
+            for comp in component_list:
+                if (item == comp.id) and (comp.__class__.__name__ == "Voltmeter"):
+                    while (item in neighbors):
+                        neighbors.remove(item)
+
+        # Continue adding to the current branch if not at a junction
+        current_branch.append(current_node)
+
+        # If a node has more than 2 neighbors, it's a junction (branch end/start)
+        if (len(neighbors) > 2 or current_node == power_source_id):
+            print("n", neighbors)
+            if current_branch:  # Save current branch
+                branches.append(current_branch[:])  # Append a copy of the current branch
+            current_branch = []  # Start a new branch
+
+        # Continue traversing
+        for neighbor in neighbors:
+            if neighbor != previous_node and neighbor not in visited:
+                stack.append((neighbor, current_node))
+                visited.add(neighbor)
+
+    # Add the last branch if it exists
+    if current_branch:
+        branches.append(current_branch)
+
+    return branches
+
+# Calculate series and parallel components dynamically
+def find_series_and_parallel_paths(graph, start_node, visited):
+    """
+    Traverse the circuit graph and identify series and parallel paths.
+    Returns two lists: one for series components and one for parallel groups.
+    """
+    stack = [(start_node, None)]  # Stack to store (current_node, previous_node)
+    series_resistors = []
+    parallel_groups = []
+    
+    current_group = []  # For collecting parallel components
+    visited.add(start_node)
+
+    while stack:
+        current_node, previous_node = stack.pop()
+        neighbors = graph[current_node]
+
+        if len(neighbors) == 2:  # Series component (one input, one output)
+            # If current node has exactly two neighbors, it's part of a series path
+            if current_node not in series_resistors:
+                series_resistors.append(current_node)
+            for neighbor in neighbors:
+                if neighbor != previous_node and neighbor not in visited:
+                    stack.append((neighbor, current_node))
+                    visited.add(neighbor)
+
+        elif len(neighbors) > 2:  # Parallel components
+            # If a node has more than two neighbors, it indicates branching (parallel)
+            if current_group and current_node not in current_group:
+                parallel_groups.append(current_group)
+                current_group = []
+            current_group.append(current_node)
+            for neighbor in neighbors:
+                if neighbor != previous_node and neighbor not in visited:
+                    current_group.append(neighbor)
+                    stack.append((neighbor, current_node))
+                    visited.add(neighbor)
+    
+    # Add remaining parallel group if it exists
+    if current_group:
+        parallel_groups.append(current_group)
+
+    return series_resistors, parallel_groups
+    
+def calculate_series_and_parallel(component_list, power_source_id):
+    connections = get_connections()
+    graph = build_graph(connections)
+    visited = set()
+
+    # Step 1: Find all distinct branches starting from the power source
+    branches = find_branches(graph, power_source_id, visited)
+
+    total_parallel_resistance = 0  # To hold the equivalent resistance of all branches
+
+    for branch in branches:
+        branch_components = [comp for comp in component_list if comp.id in branch]
+
+        # Step 2: Calculate total series resistance for the current branch
+        branch_resistors = [comp for comp in branch_components if (isinstance(comp, Resistor) or isinstance(comp, Bulb) or isinstance(comp, Led) or isinstance(comp, Diode))]
+        branch_resistance = sum(resistor.resistance for resistor in branch_resistors)
+
+        # Total voltage from cells in this branch (assuming one power source)
+        voltage = 0
+        for cell in branch_components: 
+            if cell.__class__.__name__ == "Cell":
+                voltage += cell.voltage
+                print(voltage)
+        if voltage > 0:
+            total_voltage = voltage
+
+        # Step 3: Calculate the current in the branch using Ohm's Law
+        if branch_resistance > 0:
+            branch_current = total_voltage / branch_resistance
+            print(f"Branch {branch} - Total Resistance: {branch_resistance:.2f}Ω, Current: {branch_current:.2f}A")
+        else:
+            branch_current = 0
+
+        # Step 4: Assign voltage and current across the resistors in the branch
+        for resistor in branch_resistors:
+            resistor.voltage_across = branch_current * resistor.resistance  # V = IR
+            resistor.current_across = branch_current
+            print(f"Resistor {resistor.id} - Voltage: {resistor.voltage_across:.2f}V, Current: {resistor.current_across:.2f}A")
+
+        # Step 5: Assign current to ammeters in the branch
+        for ammeter in branch_components:
+            if (isinstance(ammeter, Ammeter) or isinstance(ammeter, Fuse)):
+                ammeter.current_across = branch_current  # Same current in the branch
+                ammeter.voltage_across = 0  # Ammeter has negligible resistance
+                print(f"Ammeter {ammeter.id} - Current: {ammeter.current_across:.2f}A, Voltage: {ammeter.voltage_across:.2f}V")
+
+        # Step 6: Calculate the total resistance for branches in parallel
+        if branch_resistance > 0:
+            total_parallel_resistance += (1 / branch_resistance)
+
+    # Step 7: After all branches are processed, calculate the total equivalent resistance
+    if total_parallel_resistance > 0:
+        total_resistance = 1 / total_parallel_resistance
+    else:
+        total_resistance = float('inf')  # Handle cases where resistance is invalid
+
+    print(f"Total Resistance in Circuit: {total_resistance:.2f}Ω")
+
+    # Step 8: Calculate total current for the entire circuit using Ohm's Law
+    total_voltage = sum(cell.voltage for cell in component_list if isinstance(cell, Cell))
+    if total_resistance > 0:
+        total_current = total_voltage / total_resistance
+    else:
+        total_current = 0
+    print(f"Total Current in the Circuit: {total_current:.2f}A")
+
+    # Step 9: Update the database with the calculated values for all components
+    for component in component_list:
+        update_component_in_db(component, is_powered(component_list, connections, power_source_id))
+    
+
+def update_component_in_db(component, powered):
+    if powered:
+        cursor.execute(
+        "UPDATE tblcomponents SET voltageaccross = ?, currentaccross = ?, powered = ? WHERE compID = ?",
+        (component.voltage_across, component.current_across, powered, component.id))
+    else:
+        cursor.execute(
+        "UPDATE tblcomponents SET voltageaccross = ?, currentaccross = ?, powered = ? WHERE compID = ?",
+        (0, 0, powered, component.id))
+    conn.commit()
 
 
-                            if (data[count][1] == connectedcomp) and (data[count][4] == False): # checks if the selected item from the databse is the same as then connectedcomp
-                                cycles += 1
-                                if data[count][3] >= 2:
-                                    if (count not in branches) and (count != compcount):
-                                        for i in range(data[count][3]-1):
-                                            branches.append(count)
 
-                                count2 = -1
-                                empty = True
-                                for lines in data:
-                                    count2 += 1
-                                    if (data[count][2] == data[count2][1]):
-                                        empty = False
+# Example usage:
+def getPowerSource():
+    power_source_id = 0
+    for component in component_list:
+        if component.__class__.__name__ == "Cell":
+            power_source_id = component.id
 
-        
-                                
-                                cursor.execute("UPDATE tblcomponents SET powered=? WHERE compID=?", (True, connectedcomp) )
-                                conn.commit()
-                                
+    return power_source_id
 
-                                if (empty == True):
-                                    ended = data[count][1]
-                                    count3 = -1
-                                    for i in range(len(component_list)**2):
-                                        count3 += 1
-                                        if data[count3][1] == ended:
-                                            if data[count3][3] >= 2:
-                                                break
-                                            cursor.execute("UPDATE tblcomponents SET powered=? WHERE compID=?", (False, ended) )
-                                            conn.commit()
-                                            count3 = -1
-                                            count4 = -1
-                                            for i in range(len(component_list)**2):
-                                                count4 += 1
-                                                if data[count4][2] == ended:
-                                                    ended = data[count4][1]
-                                                    count4 = -1
-                                                    break
-                                                    
-                                    
-                        
-                                connectedcomp = data[count][2]
-                                if connectedcomp == cellid:
-                                    total += 1
-                                count = -1
-
-            
-            
-        
-                  
                                 
                                     
 def power_components():
@@ -1303,31 +1372,7 @@ def switch():
             if component.uniquestate == False:
                 component.image = component.originalimage
 
-    
 
-
-
-def ohmslaw():
-    try:
-        # selects all components from tblcomponents
-        cursor.execute('SELECT * FROM tblcomponents ORDER BY compID')
-        data = cursor.fetchall()
-        branchvoltage = 0
-        branchresistance = 0
-        count = -1
-        for item in data:
-            count += 1
-            if item[13] == True and item[1] != "Fuse": # detects if an item is powered or is a fuse
-                 # adds up all the resitances in the branch
-                branchresistance += component_list.sprites()[count].resistance
-                if item[1] == "Cell": # detects if the component is a cell
-                    # adds the voltage of all the cells
-                    branchvoltage += component_list.sprites()[count].voltage
-        # divides the total voltage of the branch by the total resistance
-        currentofbranch = branchvoltage/branchresistance
-        return currentofbranch # returns the resistance of the branch
-    except:
-        1
 
 def voltages():
     # selects all data from tblcomponents
@@ -1346,7 +1391,7 @@ def voltages():
                         if component[0] == testing:
                             resistance = int(component[14]) # finds the resistnace of the measured component
                             try:
-                                voltage = (ohmslaw()*resistance)# calculates the voltage over the component
+                                voltage = component[17]# calculates the voltage over the component
                             except:
                                 voltage = 0
             try:
@@ -1416,9 +1461,7 @@ def ammetertext():
         for component in component_list: # initialises a loop of all components
             count += 1
             if data[count][1] == "Ammeter": # detects if the component is an ammeter
-                value = ohmslaw() # determines the current using the ohmslaw function
-                if value == 0:
-                    raise exception
+                value = data[count][18] # determines the current using the ohmslaw function
                     
                 # selects a suitable unit for the current
                 unit = "A"
@@ -1519,8 +1562,8 @@ def fusecheck():
                 else:
                     WIN.blit(text_surface, (component.rect.x+10, component.rect.y-19))
     
-                current = ohmslaw() # determines the current using the ohmslaw function
-                if current >= data[count][14]: #detects if the value of current is graeter than the maximum specified for the fuse
+                current = data[count][18]# determines the current using the ohmslaw function
+                if current > data[count][14]: #detects if the value of current is graeter than the maximum specified for the fuse
                              # updates the fuse to its broken state if the current is greater
                              component.uniquestate = True
                              component.image = FUSE_BROKEN
@@ -1536,8 +1579,12 @@ def fusecheck():
 
 # definitions for the component class and each individual component as a subclass
 class Component(pygame.sprite.Sprite):
-    def __init__(self, xpos, ypos, group, resistance, voltage, uniquestate):
+    def __init__(self, id, xpos, ypos, group, resistance, voltage, uniquestate):
         super(Component, self).__init__(group)
+        self.id = id
+        self.powered = False
+        self.current_across = 0
+        self.voltage_across = voltage
         self.image = ""
         self.rect = self.image.get_bounding_rect()
         self.rect.y = ypos
@@ -1548,8 +1595,13 @@ class Component(pygame.sprite.Sprite):
         self.uniquestate = uniquestate
 
 class Cell(Component):
-    def __init__(self, xpos, ypos, group, resistance, voltage, uniquestate):
+    def __init__(self, id, xpos, ypos, group, resistance, voltage, uniquestate):
         super(Component, self).__init__(group)
+        self.id = id
+        self.powered = False
+        self.current_across = 0
+        self.voltage = voltage
+        self.voltage_across = 0
         self.image = CELL
         self.poweredimage = CELL
         self.originalimage = CELL
@@ -1558,12 +1610,15 @@ class Cell(Component):
         self.rect.y = ypos
         self.rect.x = xpos
         self.resistance = 0
-        self.voltage = voltage
         self.uniquestate = uniquestate
 
 class Bulb(Component):
-       def __init__(self, xpos, ypos, group, resistance, voltage, uniquestate):
+       def __init__(self, id, xpos, ypos, group, resistance, voltage, uniquestate):
         super(Component, self).__init__(group)
+        self.id = id
+        self.powered = False
+        self.current_across = 0
+        self.voltage_across = 0
         self.image = BULB
         self.originalimage = BULB
         self.poweredimage = BULB_POWERED
@@ -1576,8 +1631,12 @@ class Bulb(Component):
         self.uniquestate = uniquestate
 
 class Resistor(Component):
-       def __init__(self, xpos, ypos, group, resistance, voltage, uniquestate):
+       def __init__(self, id,  xpos, ypos, group, resistance, voltage, uniquestate):
         super(Component, self).__init__(group)
+        self.id = id
+        self.powered = False
+        self.current_across = 0
+        self.voltage_across = 0
         self.image = RESISTOR
         self.poweredimage = RESISTOR
         self.originalimage = RESISTOR
@@ -1590,8 +1649,12 @@ class Resistor(Component):
         self.uniquestate = uniquestate
 
 class Ammeter(Component):
-     def __init__(self, xpos, ypos, group, resistance, voltage, uniquestate):
+     def __init__(self, id, xpos, ypos, group, resistance, voltage, uniquestate):
         super(Component, self).__init__(group)
+        self.id = id
+        self.powered = False
+        self.current_across = 0
+        self.voltage_across = 0
         self.image = AMMETER
         self.poweredimage = AMMETER
         self.originalimage = AMMETER
@@ -1605,8 +1668,12 @@ class Ammeter(Component):
         self.reading = 0
         
 class Diode(Component):
-       def __init__(self, xpos, ypos, group, resistance, voltage, uniquestate):
+       def __init__(self, id, xpos, ypos, group, resistance, voltage, uniquestate):
         super(Component, self).__init__(group)
+        self.id = id
+        self.powered = False
+        self.current_across = 0
+        self.voltage_across = 0
         self.image = DIODE
         self.poweredimage = DIODE
         self.originalimage = DIODE
@@ -1619,8 +1686,12 @@ class Diode(Component):
         self.uniquestate = uniquestate
         
 class Fuse(Component):
-      def __init__(self, xpos, ypos, group, resistance, voltage, uniquestate):
+      def __init__(self, id, xpos, ypos, group, resistance, voltage, uniquestate):
         super(Component, self).__init__(group)
+        self.id = id
+        self.powered = False
+        self.current_across = 0
+        self.voltage_across = 0
         self.image = FUSE
         self.poweredimage = FUSE
         self.originalimage = FUSE
@@ -1629,13 +1700,17 @@ class Fuse(Component):
         self.clicked = False
         self.rect.y = ypos
         self.rect.x = xpos
-        self.resistance = resistance # fuse will have no resistance but this value will be used for its maximum current
+        self.resistance = resistance 
         self.voltage = voltage
-        self.uniquestate = uniquestate
+        self.uniquestate = False
         
 class Led(Component):
-      def __init__(self, xpos, ypos, group, resistance, voltage, uniquestate):
+      def __init__(self, id, xpos, ypos, group, resistance, voltage, uniquestate):
         super(Component, self).__init__(group)
+        self.id = id
+        self.powered = False
+        self.current_across = 0
+        self.voltage_across = 0
         self.image = LED
         self.poweredimage = LED_POWERED
         self.originalimage = LED
@@ -1648,8 +1723,12 @@ class Led(Component):
         self.uniquestate = uniquestate
         
 class Switch(Component):
-       def __init__(self, xpos, ypos, group, resistance, voltage, uniquestate):
+       def __init__(self, id, xpos, ypos, group, resistance, voltage, uniquestate):
         super(Component, self).__init__(group)
+        self.id = id
+        self.powered = False
+        self.current_across = 0
+        self.voltage_across = 0
         self.image = SWITCH_OPEN
         self.poweredimage = self.image
         self.originalimage = SWITCH_OPEN
@@ -1663,8 +1742,12 @@ class Switch(Component):
         self.uniquestate = uniquestate
         
 class Voltmeter(Component):
-       def __init__(self, xpos, ypos, group, resistance, voltage, uniquestate):
+       def __init__(self, id, xpos, ypos, group, resistance, voltage, uniquestate):
         super(Component, self).__init__(group)
+        self.id = id
+        self.powered = False
+        self.current_across = 0
+        self.voltage_across = 0
         self.image = VOLTMETER
         self.poweredimage = VOLTMETER
         self.originalimage = VOLTMETER
@@ -1672,7 +1755,7 @@ class Voltmeter(Component):
         self.clicked = False
         self.rect.y = ypos
         self.rect.x = xpos
-        self.resistance = 0.0000000001
+        self.resistance = 0
         self.voltage = voltage
         self.uniquestate = uniquestate
         self.reading = 0
@@ -1681,6 +1764,7 @@ class Voltmeter(Component):
 cursor.execute('SELECT * FROM tblcomponents ORDER BY compID')
 data = cursor.fetchall()
 for info in data:
+    id = info[0]
     component = info[1]
     compclass = globals()[component]
     xvalue = info[2]
@@ -1688,7 +1772,7 @@ for info in data:
     resistance = info[14]
     voltage = info[15]
     uniquestate = info[16]
-    component_list.add(compclass(xvalue, yvalue, camera_group, resistance, voltage, uniquestate))
+    component_list.add(compclass(id, xvalue, yvalue, camera_group, resistance, voltage, uniquestate))
 collidecheck = False
 
 # sets id count to number of components in the database
@@ -1736,7 +1820,6 @@ while run:
     power_components()
     switch()
     power_components()
-    ohmslaw()
     voltages()
     ammetertext()
     fusecheck()
@@ -1762,9 +1845,9 @@ while run:
             runstate = pausebutton()
         WIN.blit(pause, comprect(pause, 1400, -2))
         try:
-            #reset()
+            reset()
             power_components()
-            check_powered(cellidlist)
+            calculate_series_and_parallel(component_list, getPowerSource())
             fusecheck()
             power_components()
 
